@@ -1,9 +1,12 @@
 """
 十六进制混合帧解析器（附录1格式）
 """
+import logging
 import struct
 from typing import List, Tuple, Optional
 from ..models.data_types import GNSSData, IMUData
+
+logger = logging.getLogger(__name__)
 
 
 class HexFrameParser:
@@ -40,7 +43,7 @@ class HexFrameParser:
         expected_checksum = HexFrameParser.checksum(data[3:45])
         actual_checksum = data[45]
         if expected_checksum != actual_checksum:
-            print(f"GNSS 校验和错误: 期望 {expected_checksum:02x}, 实际 {actual_checksum:02x}")
+            logger.warning(f"GNSS 校验和错误: 期望 {expected_checksum:02x}, 实际 {actual_checksum:02x}")
             return None
 
         # 解析时间戳（低字节序）
@@ -53,7 +56,7 @@ class HexFrameParser:
 
         # 边界检查：时间戳合法性
         if year < 2000 or year > 2100:
-            print(f"GNSS 时间戳非法: 年份 {year}")
+            logger.warning(f"GNSS 时间戳非法: 年份 {year}")
             return None
 
         # 解析 GNSS 数据（低字节序）
@@ -65,7 +68,6 @@ class HexFrameParser:
         velocity_z = struct.unpack('<f', data[41:45])[0]
 
         return GNSSData(
-            timestamp=0.0,  # 后续统一计算
             year=year,
             month=month,
             day=day,
@@ -83,9 +85,15 @@ class HexFrameParser:
     @staticmethod
     def parse_ins_frame(data: bytes) -> Optional[IMUData]:
         """
-        解析 INS 帧（附录1格式）
+        解析 INS 帧（附录1格式，98字节混合帧中的INS部分）
+
+        注意：当前数据文件中GNSS和INS是分开存储的，此函数暂未使用。
+        如果未来需要解析98字节混合帧，可以启用此函数。
+
         返回 IMUData 或 None（解析失败）
         """
+        # 此函数期待98字节混合帧，但当前数据是分离的
+        # 保留代码以备未来使用
         if len(data) < 98:
             return None
 
@@ -101,7 +109,7 @@ class HexFrameParser:
         expected_checksum = HexFrameParser.checksum(data[49:97])
         actual_checksum = data[97]
         if expected_checksum != actual_checksum:
-            print(f"INS 校验和错误: 期望 {expected_checksum:02x}, 实际 {actual_checksum:02x}")
+            logger.warning(f"INS 校验和错误: 期望 {expected_checksum:02x}, 实际 {actual_checksum:02x}")
             return None
 
         # INS 帧复用 GNSS 帧的时间戳
@@ -121,7 +129,6 @@ class HexFrameParser:
         accel_z = struct.unpack('<d', data[89:97])[0]
 
         return IMUData(
-            timestamp=0.0,  # 后续统一计算
             year=year,
             month=month,
             day=day,
@@ -152,14 +159,14 @@ class HexFrameParser:
         try:
             binary_data = bytes.fromhex(content)
         except ValueError as e:
-            print(f"文件格式错误: {e}")
+            logger.error(f"文件格式错误: {e}")
             return gnss_list, imu_list
 
         offset = 0
         while offset < len(binary_data):
             # 边界条件：文件尾部不足一帧
             if offset + 98 > len(binary_data):
-                print(f"文件尾部不足一帧，剩余 {len(binary_data) - offset} 字节")
+                logger.debug(f"文件尾部不足一帧，剩余 {len(binary_data) - offset} 字节")
                 break
 
             # 尝试解析 GNSS+INS 混合帧

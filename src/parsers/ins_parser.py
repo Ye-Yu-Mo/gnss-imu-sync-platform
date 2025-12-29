@@ -1,5 +1,8 @@
 """
 INS 帧解析器（附录1 INS帧格式，52字节）
+
+注意：INS帧不包含时间戳信息。
+解析后需要调用 time_sync.TimestampConverter.convert_imu_data() 设置正确的时间戳。
 """
 import struct
 from typing import List, Optional
@@ -21,6 +24,10 @@ class INSFrameParser:
     def parse_ins_frame(data: bytes) -> Optional[IMUData]:
         """
         解析单独的 INS 帧（52字节）
+
+        注意：INS帧无时间戳，返回的IMUData使用epoch时间(1970-01-01)。
+        需要后续调用convert_imu_data()设置正确timestamp。
+
         返回 IMUData 或 None（解析失败）
         """
         if len(data) < 52:
@@ -51,12 +58,12 @@ class INSFrameParser:
         accel_y = struct.unpack('<d', data[35:43])[0]
         accel_z = struct.unpack('<d', data[43:51])[0]
 
-        # INS帧没有时间戳，暂时设为0
+        # INS帧没有时间戳，使用epoch时间作为占位符
+        # 调用方需要使用convert_imu_data()设置正确的timestamp
         return IMUData(
-            timestamp=0.0,
-            year=0,
-            month=0,
-            day=0,
+            year=1970,
+            month=1,
+            day=1,
             hour=0,
             minute=0,
             microsecond=0,

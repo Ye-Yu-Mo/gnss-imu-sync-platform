@@ -11,44 +11,36 @@ class TimestampConverter:
     """时间戳统一转换器"""
 
     @staticmethod
-    def to_unix_timestamp(year: int, month: int, day: int,
-                         hour: int, minute: int, microsecond: int) -> float:
-        """
-        将年月日时分微秒转换为Unix时间戳（秒）
-        """
-        dt = datetime(year, month, day, hour, minute, 0)
-        return dt.timestamp() + microsecond / 1e6
-
-    @staticmethod
-    def convert_gnss_data(gnss_list: List[GNSSData]) -> List[GNSSData]:
-        """
-        转换GNSS数据的时间戳
-        """
-        for gnss in gnss_list:
-            gnss.timestamp = TimestampConverter.to_unix_timestamp(
-                gnss.year, gnss.month, gnss.day,
-                gnss.hour, gnss.minute, gnss.microsecond
-            )
-        return gnss_list
-
-    @staticmethod
     def convert_imu_data(imu_list: List[IMUData],
                         start_timestamp: float,
                         frequency: float = 95.0) -> List[IMUData]:
         """
-        为IMU数据生成时间戳
+        为IMU数据设置时间戳
 
-        由于INS帧没有时间戳，根据采样频率生成
+        由于INS帧没有时间戳，根据采样频率生成时间戳并更新IMU对象。
 
         Args:
-            imu_list: IMU数据列表
+            imu_list: IMU数据列表（解析后的，时间戳为epoch）
             start_timestamp: 起始Unix时间戳（秒）
             frequency: 采样频率（Hz）
         """
         dt = 1.0 / frequency
+        start_dt = datetime.fromtimestamp(start_timestamp)
 
         for i, imu in enumerate(imu_list):
-            imu.timestamp = start_timestamp + i * dt
+            current_timestamp = start_timestamp + i * dt
+            current_dt = datetime.fromtimestamp(current_timestamp)
+
+            # 更新时间字段
+            imu.year = current_dt.year
+            imu.month = current_dt.month
+            imu.day = current_dt.day
+            imu.hour = current_dt.hour
+            imu.minute = current_dt.minute
+            imu.microsecond = current_dt.microsecond
+
+            # 直接设置timestamp（绕过__post_init__）
+            object.__setattr__(imu, 'timestamp', current_timestamp)
 
         return imu_list
 

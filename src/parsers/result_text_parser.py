@@ -1,8 +1,11 @@
 """
 解算结果文本解析器（附录2文本格式）
 """
+import logging
 from typing import List
 from ..models.data_types import NavigationResult
+
+logger = logging.getLogger(__name__)
 
 
 class ResultTextParser:
@@ -24,7 +27,7 @@ class ResultTextParser:
 
                 parts = line.split()
                 if len(parts) != 26:
-                    print(f"第{line_num}行格式错误，字段数={len(parts)}，跳过")
+                    logger.warning(f"第{line_num}行格式错误，字段数={len(parts)}，跳过")
                     continue
 
                 try:
@@ -61,7 +64,6 @@ class ResultTextParser:
                     frame_index = int(parts[25])
 
                     result = NavigationResult(
-                        timestamp=0.0,  # 后续统一计算
                         year=year,
                         month=month,
                         day=day,
@@ -92,7 +94,7 @@ class ResultTextParser:
                     results.append(result)
 
                 except (ValueError, IndexError) as e:
-                    print(f"第{line_num}行解析错误: {e}")
+                    logger.warning(f"第{line_num}行解析错误: {e}")
                     continue
 
         return results
