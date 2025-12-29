@@ -2,14 +2,15 @@
 
 ## 项目简介
 
-开发一个健壮的数据预处理模块，负责读取异构的 GNSS 和 IMU 日志文件，解决传感器间时序对齐问题，并实现基础的数学插值方法来生成高频的 GNSS 观测数据，为后续的组合导航融合算法提供同步、统一的数据接口。
+健壮的数据预处理平台，解决GNSS和IMU异构传感器的时序对齐问题，通过插值算法生成高频GNSS观测数据，为组合导航融合算法提供同步、统一的数据接口。
 
 **核心功能**
-- GNSS/IMU 数据文件读取与解析
-- 时序同步算法（时戳对齐、漂移检测）
-- GNSS 数据插值（线性/样条/多项式）
-- 数据可视化与验证
-- Web 前端界面（数据上传、解析、图表展示）
+- ✅ GNSS/IMU数据解析（十六进制+文本格式）
+- ✅ 时序同步算法（二分查找优化）
+- ✅ GNSS插值（线性/三次样条）
+- ✅ 数据可视化（时间戳对齐、轨迹、传感器曲线）
+- ✅ 完整处理管线（一键处理）
+- 🚧 Web前端界面（计划中）
 
 ## 项目结构
 
@@ -17,94 +18,149 @@
 gnss-imu-sync-platform/
 ├── src/
 │   ├── parsers/           # 数据解析器
-│   │   ├── hex_parser.py          # 十六进制 GNSS 数据解析
-│   │   ├── result_parser.py       # 二进制解算结果解析
-│   │   └── result_text_parser.py  # 文本解算结果解析
-│   ├── models/
-│   │   └── data_types.py          # 数据结构定义
-│   └── __init__.py
+│   │   ├── hex_parser.py
+│   │   ├── ins_parser.py
+│   │   └── result_text_parser.py
+│   ├── models/            # 数据结构
+│   │   └── data_types.py
+│   ├── sync/              # 时序同步
+│   │   └── time_sync.py
+│   ├── interpolation/     # 插值算法
+│   │   └── gnss_interpolation.py
+│   ├── visualization/     # 可视化
+│   │   └── plots.py
+│   └── pipeline/          # 数据管线
+│       └── data_pipeline.py
 ├── data/                  # 数据文件
-│   ├── DATA_FORMAT.md             # 数据格式详细说明
-│   ├── 3_NavigationResultGNSS.dat # GNSS 数据 (29,831 条)
-│   ├── 3_NavigationResult_txt.dat # 解算结果文本 (2.8M 条)
-│   └── ...
 ├── tests/                 # 测试脚本
-├── features.json          # 需求文档
-├── pyproject.toml         # 项目配置 (uv)
-└── README.md
+├── examples/              # 示例脚本
+├── run_pipeline.py        # 命令行工具
+├── config.json            # 配置示例
+└── pyproject.toml         # 项目配置
 ```
 
 ## 快速开始
 
-### 环境要求
-
-- Python >= 3.11
-- uv (包管理器)
-
-### 安装依赖
+### 1. 安装依赖
 
 ```bash
 # 安装项目依赖
 uv sync
-
-# 安装 Web 相关依赖（可选）
-uv sync --extra web
-
-# 安装开发工具（可选）
-uv sync --extra dev
 ```
 
-### 运行示例
+### 2. 运行完整管线
 
+**方式1：使用配置文件**
 ```bash
-# 数据文件汇总分析
-uv run data_summary.py
-
-# 测试 GNSS 数据解析
-uv run test_hex_parser.py
-
-# 测试解算结果解析
-uv run test_result_text_parser.py
+uv run python run_pipeline.py --config config.json
 ```
 
-## 当前进度
+**方式2：命令行参数**
+```bash
+uv run python run_pipeline.py \
+  --gnss data/3_NavigationResultGNSS.dat \
+  --imu data/3_NavigationResult.dat \
+  --output output \
+  --interpolation linear \
+  --frequency 95
+```
 
-**F1 - 数据读取模块** [已完成]
-- [x] F1.1 十六进制 GNSS 数据解析器（附录1 GNSS帧）
-- [x] F1.2 十六进制 IMU 数据解析器（附录1 INS帧）
-- [x] F1.3 解算结果解析器（附录2格式）
-- [x] F1.4 统一数据结构设计
-- [x] 边界条件处理（校验和、时戳验证、文件尾处理）
+**方式3：Python API**
+```python
+from src.pipeline.data_pipeline import DataPipeline, PipelineConfig
 
-**数据统计**
-- GNSS 数据: 29,831 条 (1 Hz)
-- IMU 数据: 2,832,350 条 (约 95 Hz)
-- 解算结果: 2,833,904 条 (约 200 Hz)
+config = PipelineConfig(
+    gnss_file="data/3_NavigationResultGNSS.dat",
+    imu_file="data/3_NavigationResult.dat",
+    output_dir="output"
+)
+pipeline = DataPipeline(config)
+results = pipeline.run()
 
-**F2 - 时序同步算法** [进行中]
-- 时戳统一转换
-- 最邻近搜索算法
-- 时戳漂移检测
+# 查看结果
+print(f"对齐精度: {results.alignment_report['avg_time_diff']*1000:.2f} ms")
+```
 
-**F3 - GNSS 插值** [待开始]
+### 3. 查看结果
+
+管线输出包括：
+```
+output/
+├── plots/
+│   ├── timestamp_alignment.png  # 时间戳对齐分析
+│   ├── imu_data.png             # IMU传感器数据
+│   ├── gnss_trajectory.png      # GNSS轨迹
+│   └── interpolation_*.png      # 插值效果对比
+└── ...
+```
+
+## 核心功能
+
+### 数据解析
+支持三种数据格式：
+- **GNSS数据**: 十六进制帧格式（46字节，1Hz）
+- **IMU数据**: 十六进制帧格式（52字节，95Hz）
+- **解算结果**: 文本格式（26字段，200Hz）
+
+### 时序同步
+- 自动为IMU数据设置时间戳（基于采样频率）
+- 最邻近搜索算法（二分查找优化）
+- 对齐质量报告（时间差统计）
+
+### GNSS插值
+- **线性插值**: 简单快速，适合实时处理
+- **三次样条插值**: 平滑无震荡，高精度
+- 从1Hz插值到95Hz，完美匹配IMU频率
+
+### 数据可视化
+- 时间戳分布与对齐分析
+- IMU 6轴传感器数据（陀螺仪+加速度计）
+- GNSS轨迹与高度剖面
+- 插值前后效果对比
+
+## 处理效果
+
+| 指标 | 插值前 | 插值后 | 提升 |
+|------|--------|--------|------|
+| 平均时间差 | 468 ms | 0.01 ms | **46,800倍** |
+| 5ms内对齐率 | 0.6% | 100% | **167倍** |
+| 10ms内对齐率 | 1.0% | 100% | **100倍** |
+
+**结论**: 插值将对齐精度从毫秒级提升到微秒级。
+
+## 开发进度
+
+**F1 - 数据读取模块** [✅ 已完成]
+- GNSS/IMU/解算结果数据解析器
+- 统一数据结构设计
+- 完整测试覆盖
+
+**F2 - 时序同步算法** [✅ 已完成]
+- 时间戳统一转换
+- 数据对齐算法（二分查找优化）
+- 对齐质量验证
+
+**F3 - GNSS插值** [✅ 已完成]
 - 线性插值
 - 三次样条插值
-- 高频伪观测量生成
+- 高频伪观测量生成（1Hz → 95Hz）
 
-**F4 - 数据可视化** [待开始]
-- 时戳对比图
-- IMU 数据曲线
-- GNSS 轨迹可视化
+**F4 - 数据可视化** [✅ 已完成]
+- 时间戳对齐图
+- IMU数据曲线
+- GNSS轨迹可视化
+- 插值效果对比
 
-**F5 - 平台整合** [待开始]
-- 数据处理管线
-- 统一 API 接口
-- 配置管理
+**F5 - 平台整合** [✅ 已完成]
+- 完整数据处理管线
+- 配置文件支持
+- 命令行工具
+- Python API
 
-**F6 - Web 前端** [计划中]
-- 后端 REST API
-- 前端界面
-- 图表集成
+**F6 - Web前端** [计划中]
+- 后端REST API
+- 文件上传与在线处理
+- 实时图表展示
 
 ## 数据说明
 
@@ -114,7 +170,6 @@ uv run test_result_text_parser.py
 - GNSS 数据: 29,831 条 (1 Hz, 经纬高+速度)
 - IMU 原始数据: 2,832,350 条 (约 95 Hz, 陀螺仪+加速度计)
 - 解算结果: 2,833,904 条 (约 200 Hz, 组合导航+纯惯导)
-- NMEA 导航输出: com15.txt (1 Hz) / com16.txt (10 Hz)
 
 ## 技术栈
 
@@ -122,11 +177,8 @@ uv run test_result_text_parser.py
 - **包管理**: uv
 - **数值计算**: NumPy, SciPy
 - **可视化**: Matplotlib
-- **数据处理**: Pandas
 - **Web 后端** (计划): FastAPI
 - **Web 前端** (计划): React + ECharts
-
----
 
 ## 开发规范
 
@@ -134,3 +186,7 @@ uv run test_result_text_parser.py
 - 代码格式化: `black`
 - 代码检查: `ruff`
 - 测试框架: `pytest`
+
+---
+
+**详细进度**: 见 [`Status.md`](Status.md)

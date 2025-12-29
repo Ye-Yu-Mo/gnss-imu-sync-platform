@@ -1,0 +1,14 @@
+{
+  "gnss_file": "data/3_NavigationResultGNSS.dat",
+  "imu_file": "data/3_NavigationResult.dat",
+  "result_file": "data/3_NavigationResult_txt.dat",
+  "output_dir": "output/pipeline_results",
+  "imu_frequency": 95.0,
+  "interpolation_method": "linear",
+  "interpolation_frequency": 95.0,
+  "generate_plots": true,
+  "plot_max_points": 10000,
+  "plot_time_window": 1000.0,
+  "save_interpolated_gnss": false,
+  "save_aligned_data": false
+}
