@@ -110,6 +110,7 @@ class DataPipeline:
         self.imu_data: Optional[List[IMUData]] = None
         self.interpolated_gnss: Optional[List[GNSSData]] = None
         self.navigation_results: Optional[List[NavigationResult]] = None
+        self.aligned_pairs: Optional[List[Tuple]] = None  # (GNSS, IMU, time_diff)
 
         logger.info(f"管线初始化完成，输出目录: {self.output_dir}")
 
@@ -237,10 +238,10 @@ class DataPipeline:
 
         # 对齐数据（只取前1000个IMU点做评估）
         sample_size = min(1000, len(self.imu_data))
-        aligned_pairs = TimeAlignment.align_data(gnss_to_use, self.imu_data[:sample_size])
+        self.aligned_pairs = TimeAlignment.align_data(gnss_to_use, self.imu_data[:sample_size])
 
         # 生成质量报告
-        report = TimeAlignment.validate_alignment(aligned_pairs)
+        report = TimeAlignment.validate_alignment(self.aligned_pairs)
 
         logger.info("对齐质量报告:")
         logger.info(f"  样本大小: {report['total_pairs']}")
@@ -331,18 +332,18 @@ class DataPipeline:
             writer.writerow([
                 'timestamp',
                 'gnss_latitude', 'gnss_longitude', 'gnss_altitude',
-                'gnss_vel_n', 'gnss_vel_e', 'gnss_vel_d',
+                'gnss_velocity_x', 'gnss_velocity_y', 'gnss_velocity_z',
                 'imu_gyro_x', 'imu_gyro_y', 'imu_gyro_z',
                 'imu_accel_x', 'imu_accel_y', 'imu_accel_z',
                 'time_diff_ms'
             ])
 
             # 写入数据
-            for (gnss, imu), time_diff in zip(self.aligned_pairs, self.time_diffs):
+            for gnss, imu, time_diff in self.aligned_pairs:
                 writer.writerow([
                     gnss.timestamp,
                     gnss.latitude, gnss.longitude, gnss.altitude,
-                    gnss.vel_n, gnss.vel_e, gnss.vel_d,
+                    gnss.velocity_x, gnss.velocity_y, gnss.velocity_z,
                     imu.gyro_x, imu.gyro_y, imu.gyro_z,
                     imu.accel_x, imu.accel_y, imu.accel_z,
                     time_diff * 1000  # 转换为毫秒
@@ -365,7 +366,7 @@ class DataPipeline:
                 'timestamp',
                 'year', 'month', 'day', 'hour', 'minute', 'microsecond',
                 'latitude', 'longitude', 'altitude',
-                'vel_n', 'vel_e', 'vel_d'
+                'velocity_x', 'velocity_y', 'velocity_z'
             ])
 
             # 写入数据
@@ -375,7 +376,7 @@ class DataPipeline:
                     gnss.year, gnss.month, gnss.day,
                     gnss.hour, gnss.minute, gnss.microsecond,
                     gnss.latitude, gnss.longitude, gnss.altitude,
-                    gnss.vel_n, gnss.vel_e, gnss.vel_d
+                    gnss.velocity_x, gnss.velocity_y, gnss.velocity_z
                 ])
 
         logger.info(f"已保存 {len(self.interpolated_gnss)} 条插值GNSS数据")

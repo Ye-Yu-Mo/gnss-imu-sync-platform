@@ -60,8 +60,39 @@ OUTPUT_DIR = Path("output/web_results")
 UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
+# 任务持久化文件
+JOBS_FILE = OUTPUT_DIR.parent / "jobs.json"
+
 # 任务状态存储（生产环境应该用Redis/数据库）
 jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def load_jobs():
+    """从文件加载任务记录"""
+    global jobs
+    if JOBS_FILE.exists():
+        try:
+            with open(JOBS_FILE, 'r', encoding='utf-8') as f:
+                jobs = json.load(f)
+            logger.info(f"已加载 {len(jobs)} 条历史任务记录")
+        except Exception as e:
+            logger.error(f"加载任务记录失败: {e}")
+            jobs = {}
+    else:
+        jobs = {}
+
+
+def save_jobs():
+    """保存任务记录到文件"""
+    try:
+        with open(JOBS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(jobs, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"保存任务记录失败: {e}")
+
+
+# 启动时加载任务记录
+load_jobs()
 
 
 @app.get("/")
@@ -137,6 +168,7 @@ async def upload_files(
     }
 
     logger.info(f"文件上传完成: job_id={job_id}")
+    save_jobs()  # 持久化任务记录
 
     return {
         "job_id": job_id,
@@ -237,13 +269,15 @@ async def run_pipeline_async(
         if plots_dir.exists():
             job["results"]["plots"] = [p.name for p in plots_dir.glob("*.png")]
 
+        save_jobs()  # 持久化任务记录
         logger.info(f"管线执行完成: job_id={job_id}")
 
     except Exception as e:
-        logger.error(f"管线执行失败: job_id={job_id}, error={e}")
+        logger.error(f"管线执行失败: job_id={job_id}, error={e}", exc_info=True)
         job["status"] = "failed"
         job["error"] = str(e)
         job["completed_at"] = datetime.now().isoformat()
+        save_jobs()  # 持久化任务记录
 
 
 @app.get("/api/status/{job_id}")
@@ -427,6 +461,8 @@ async def cleanup_jobs(status: Optional[str] = None):
         except Exception as e:
             logger.error(f"删除任务失败: job_id={job_id}, error={e}")
 
+    save_jobs()  # 持久化任务记录
+
     return {
         "message": f"Cleanup completed",
         "deleted_count": deleted_count,
@@ -452,6 +488,7 @@ async def delete_all_jobs():
 
     # 清空任务记录
     jobs.clear()
+    save_jobs()  # 持久化任务记录
 
     return {
         "message": "All jobs deleted",
@@ -477,6 +514,7 @@ async def delete_job(job_id: str):
 
     # 删除记录
     del jobs[job_id]
+    save_jobs()  # 持久化任务记录
 
     return {"message": "Job deleted", "job_id": job_id}
 
