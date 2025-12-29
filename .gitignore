@@ -65,3 +65,4 @@ data/*.pdf
 *.tmp
 *.bak
 .cache/
+*.md
