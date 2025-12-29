@@ -300,7 +300,11 @@ async def download_results(job_id: str):
     """
     打包下载任务的所有结果文件（ZIP）
 
-    包含：对齐报告JSON、所有图表PNG
+    包含：
+    - aligned_gnss_imu.csv - 对齐后的GNSS-IMU配对数据
+    - interpolated_gnss.csv - 插值后的GNSS数据（如果有）
+    - alignment_report.json - 对齐质量报告
+    - plots/*.png - 所有可视化图表
     """
     import zipfile
     from io import BytesIO
@@ -318,6 +322,16 @@ async def download_results(job_id: str):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # 添加CSV数据文件
+        csv_files = [
+            "aligned_gnss_imu.csv",
+            "interpolated_gnss.csv"
+        ]
+        for csv_file in csv_files:
+            csv_path = output_dir / csv_file
+            if csv_path.exists():
+                zip_file.write(csv_path, csv_file)
+
         # 添加图表
         plots_dir = output_dir / "plots"
         if plots_dir.exists():

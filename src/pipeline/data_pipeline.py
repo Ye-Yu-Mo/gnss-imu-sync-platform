@@ -47,8 +47,8 @@ class PipelineConfig:
     plot_time_window: Optional[float] = 1000.0  # 秒，None=全部
 
     # 输出控制
-    save_interpolated_gnss: bool = False
-    save_aligned_data: bool = False
+    save_interpolated_gnss: bool = True  # 默认保存插值后的GNSS数据
+    save_aligned_data: bool = True  # 默认保存对齐数据
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'PipelineConfig':
@@ -307,10 +307,76 @@ class DataPipeline:
         """步骤6: 保存处理结果"""
         logger.info("\n[6/6] 保存处理结果...")
 
-        # 保存插值后的GNSS（可选）
+        # 保存对齐后的数据为CSV
+        if self.aligned_pairs:
+            self._save_aligned_data_csv()
+
+        # 保存插值后的GNSS数据为CSV
         if self.config.save_interpolated_gnss and self.interpolated_gnss:
-            output_file = self.output_dir / "interpolated_gnss.json"
-            logger.info(f"保存插值后GNSS数据: {output_file}")
-            # TODO: 实现数据序列化
+            self._save_interpolated_gnss_csv()
 
         logger.info("结果保存完成")
+
+    def _save_aligned_data_csv(self) -> None:
+        """保存对齐后的GNSS-IMU配对数据为CSV"""
+        import csv
+
+        output_file = self.output_dir / "aligned_gnss_imu.csv"
+        logger.info(f"保存对齐数据: {output_file}")
+
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+
+            # 写入表头
+            writer.writerow([
+                'timestamp',
+                'gnss_latitude', 'gnss_longitude', 'gnss_altitude',
+                'gnss_vel_n', 'gnss_vel_e', 'gnss_vel_d',
+                'imu_gyro_x', 'imu_gyro_y', 'imu_gyro_z',
+                'imu_accel_x', 'imu_accel_y', 'imu_accel_z',
+                'time_diff_ms'
+            ])
+
+            # 写入数据
+            for (gnss, imu), time_diff in zip(self.aligned_pairs, self.time_diffs):
+                writer.writerow([
+                    gnss.timestamp,
+                    gnss.latitude, gnss.longitude, gnss.altitude,
+                    gnss.vel_n, gnss.vel_e, gnss.vel_d,
+                    imu.gyro_x, imu.gyro_y, imu.gyro_z,
+                    imu.accel_x, imu.accel_y, imu.accel_z,
+                    time_diff * 1000  # 转换为毫秒
+                ])
+
+        logger.info(f"已保存 {len(self.aligned_pairs)} 条对齐数据")
+
+    def _save_interpolated_gnss_csv(self) -> None:
+        """保存插值后的GNSS数据为CSV"""
+        import csv
+
+        output_file = self.output_dir / "interpolated_gnss.csv"
+        logger.info(f"保存插值GNSS数据: {output_file}")
+
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+
+            # 写入表头
+            writer.writerow([
+                'timestamp',
+                'year', 'month', 'day', 'hour', 'minute', 'microsecond',
+                'latitude', 'longitude', 'altitude',
+                'vel_n', 'vel_e', 'vel_d'
+            ])
+
+            # 写入数据
+            for gnss in self.interpolated_gnss:
+                writer.writerow([
+                    gnss.timestamp,
+                    gnss.year, gnss.month, gnss.day,
+                    gnss.hour, gnss.minute, gnss.microsecond,
+                    gnss.latitude, gnss.longitude, gnss.altitude,
+                    gnss.vel_n, gnss.vel_e, gnss.vel_d
+                ])
+
+        logger.info(f"已保存 {len(self.interpolated_gnss)} 条插值GNSS数据")
+
