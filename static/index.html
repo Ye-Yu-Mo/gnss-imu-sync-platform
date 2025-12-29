@@ -3,278 +3,660 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GNSS/IMU数据处理平台</title>
-    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <title>GNSS/IMU 原始数据读写与时序同步处理平台</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
     <style>
-        body {
-            padding: 20px;
-            background: #f5f5f5;
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
         }
-        .container {
-            max-width: 1000px;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
         }
-        .plot-container {
-            margin-top: 20px;
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
         }
-        .plot-container img {
-            max-width: 100%;
-            margin-bottom: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
-        .status-badge {
-            font-size: 14px;
-            padding: 5px 10px;
+        .drag-active {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
         }
-        #progress {
-            display: none;
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1 class="mb-4">GNSS/IMU 数据处理平台</h1>
-        <p class="text-muted">上传GNSS和IMU数据文件，自动完成时序同步、插值和可视化</p>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
 
-        <hr>
-
-        <!-- 文件上传表单 -->
-        <div id="upload-section">
-            <h3>1. 上传数据文件</h3>
-            <form id="upload-form">
-                <div class="mb-3">
-                    <label for="gnss-file" class="form-label">GNSS数据文件 <span class="text-danger">*</span></label>
-                    <input type="file" class="form-control" id="gnss-file" required>
-                    <small class="text-muted">附录1 GNSS帧格式（46字节）</small>
+    <!-- 顶部导航 -->
+    <nav class="bg-slate-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fa-solid fa-satellite-dish text-blue-400 text-2xl mr-3"></i>
+                    <span class="font-bold text-xl tracking-wider">GNSS-IMU Sync Platform</span>
                 </div>
-
-                <div class="mb-3">
-                    <label for="imu-file" class="form-label">IMU数据文件 <span class="text-danger">*</span></label>
-                    <input type="file" class="form-control" id="imu-file" required>
-                    <small class="text-muted">附录1 INS帧格式（52字节）</small>
-                </div>
-
-                <div class="mb-3">
-                    <label for="result-file" class="form-label">解算结果文件（可选）</label>
-                    <input type="file" class="form-control" id="result-file">
-                    <small class="text-muted">附录2文本格式</small>
-                </div>
-
-                <button type="submit" class="btn btn-primary">上传文件</button>
-            </form>
-        </div>
-
-        <!-- 参数配置 -->
-        <div id="config-section" style="display: none;">
-            <hr>
-            <h3>2. 配置处理参数</h3>
-            <form id="config-form">
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label for="imu-freq" class="form-label">IMU采样频率 (Hz)</label>
-                        <input type="number" class="form-control" id="imu-freq" value="95" step="0.1" required>
-                    </div>
-
-                    <div class="col-md-6 mb-3">
-                        <label for="interp-freq" class="form-label">插值目标频率 (Hz)</label>
-                        <input type="number" class="form-control" id="interp-freq" value="95" step="0.1" required>
+                <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-4">
+                        <a href="#" class="bg-slate-800 text-white px-3 py-2 rounded-md text-sm font-medium">处理管线</a>
+                        <a href="/docs" class="text-gray-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md text-sm font-medium">API 文档</a>
                     </div>
                 </div>
-
-                <div class="mb-3">
-                    <label for="interp-method" class="form-label">插值方法</label>
-                    <select class="form-select" id="interp-method">
-                        <option value="linear" selected>线性插值（快速）</option>
-                        <option value="spline">三次样条插值（高精度）</option>
-                    </select>
-                </div>
-
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="generate-plots" checked>
-                    <label class="form-check-label" for="generate-plots">
-                        生成可视化图表
-                    </label>
-                </div>
-
-                <button type="submit" class="btn btn-success">开始处理</button>
-            </form>
-        </div>
-
-        <!-- 进度显示 -->
-        <div id="progress" class="mt-4">
-            <hr>
-            <h3>处理进度</h3>
-            <div class="alert alert-info">
-                <strong>状态：</strong> <span id="status-text">处理中...</span>
-                <span id="status-badge" class="badge status-badge bg-primary float-end">processing</span>
-            </div>
-            <div class="progress">
-                <div class="progress-bar progress-bar-striped progress-bar-animated"
-                     role="progressbar" style="width: 100%"></div>
             </div>
         </div>
+    </nav>
 
-        <!-- 结果展示 -->
-        <div id="results-section" style="display: none;">
-            <hr>
-            <h3>处理结果</h3>
+    <!-- 主要内容区 -->
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
-            <div class="alert alert-success">
-                <h5>✅ 处理完成</h5>
-                <div id="results-summary"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            <!-- 左侧：输入与配置 -->
+            <div class="lg:col-span-1 space-y-6">
+
+                <!-- 1. 文件上传卡片 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-700"><i class="fa-solid fa-upload mr-2"></i>数据上传</h3>
+                        <span class="text-xs font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded">Step 1</span>
+                    </div>
+                    <div class="p-6 space-y-4">
+
+                        <!-- GNSS Upload -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">GNSS 数据文件 <span class="text-red-500">*</span></label>
+                            <div class="relative group">
+                                <input type="file" id="gnssFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" accept=".dat,.txt">
+                                <div id="gnssDropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center transition-colors group-hover:border-blue-400">
+                                    <i class="fa-solid fa-location-crosshairs text-gray-400 text-xl mb-2"></i>
+                                    <p class="text-sm text-gray-500" id="gnssFileName">拖拽或点击上传 (.dat)</p>
+                                    <p class="text-xs text-gray-400 mt-1">格式: 16进制 (46字节/帧)</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- IMU Upload -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">IMU 数据文件 <span class="text-red-500">*</span></label>
+                            <div class="relative group">
+                                <input type="file" id="imuFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" accept=".dat,.txt">
+                                <div id="imuDropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center transition-colors group-hover:border-blue-400">
+                                    <i class="fa-solid fa-microchip text-gray-400 text-xl mb-2"></i>
+                                    <p class="text-sm text-gray-500" id="imuFileName">拖拽或点击上传 (.dat)</p>
+                                    <p class="text-xs text-gray-400 mt-1">格式: 16进制 (52字节/帧)</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Result Upload (Optional) -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">解算结果文件 (可选)</label>
+                            <div class="relative group">
+                                <input type="file" id="resultFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" accept=".dat,.txt">
+                                <div id="resultDropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center transition-colors group-hover:border-blue-400 bg-gray-50">
+                                    <p class="text-xs text-gray-500" id="resultFileName">点击上传参考真值 (.txt/.dat)</p>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- 2. 参数配置卡片 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-700"><i class="fa-solid fa-sliders mr-2"></i>处理参数</h3>
+                        <span class="text-xs font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded">Step 2</span>
+                    </div>
+                    <div class="p-6 space-y-5">
+
+                        <!-- Frequency -->
+                        <div>
+                            <label for="imuFreq" class="block text-sm font-medium text-gray-700">IMU 采样频率 (Hz)</label>
+                            <div class="mt-1 flex rounded-md shadow-sm">
+                                <input type="number" name="imuFreq" id="imuFreq" class="focus:ring-blue-500 focus:border-blue-500 flex-1 block w-full rounded-none rounded-l-md sm:text-sm border-gray-300 px-3 py-2 border" value="95.0">
+                                <span class="inline-flex items-center px-3 rounded-r-md border border-l-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">Hz</span>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">必须与IMU实际频率一致</p>
+                        </div>
+
+                        <!-- Interpolation Method -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">插值方法</label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="relative">
+                                    <input class="sr-only peer" type="radio" name="interpMethod" id="method_linear" value="linear" checked>
+                                    <label class="flex flex-col p-3 bg-white border border-gray-300 rounded-lg cursor-pointer focus:outline-none hover:bg-gray-50 peer-checked:ring-2 peer-checked:ring-blue-500 peer-checked:border-transparent" for="method_linear">
+                                        <span class="text-sm font-bold text-gray-900">Linear</span>
+                                        <span class="text-xs text-gray-500 mt-1">速度快</span>
+                                    </label>
+                                </div>
+                                <div class="relative">
+                                    <input class="sr-only peer" type="radio" name="interpMethod" id="method_spline" value="spline">
+                                    <label class="flex flex-col p-3 bg-white border border-gray-300 rounded-lg cursor-pointer focus:outline-none hover:bg-gray-50 peer-checked:ring-2 peer-checked:ring-blue-500 peer-checked:border-transparent" for="method_spline">
+                                        <span class="text-sm font-bold text-gray-900">Spline</span>
+                                        <span class="text-xs text-gray-500 mt-1">高精度</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Switches -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <input id="generatePlots" name="generatePlots" type="checkbox" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" checked>
+                                <label for="generatePlots" class="ml-2 block text-sm text-gray-900">生成可视化图表</label>
+                            </div>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button id="startBtn" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fa-solid fa-play mr-2 mt-0.5"></i> 开始处理
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            <div id="plots-container" class="plot-container"></div>
+            <!-- 右侧：状态与结果 -->
+            <div class="lg:col-span-2 space-y-6">
+
+                <!-- 3. 状态面板 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden min-h-[160px]">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-700"><i class="fa-solid fa-terminal mr-2"></i>处理状态</h3>
+                        <span id="statusBadge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            等待就绪
+                        </span>
+                    </div>
+                    <div class="p-6">
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+                            <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+
+                        <!-- Console Log Window -->
+                        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 h-64 overflow-y-auto" id="consoleLog">
+                            <p class="text-gray-500">系统已就绪，等待输入...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. 结果展示 -->
+                <div id="resultsPanel" class="hidden space-y-6 fade-in">
+
+                    <!-- 统计数据 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide">GNSS 数据量</div>
+                            <div class="text-2xl font-bold text-gray-800 mt-1" id="resGnssCount">--</div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide">IMU 数据量</div>
+                            <div class="text-2xl font-bold text-gray-800 mt-1" id="resImuCount">--</div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide">平均时间差</div>
+                            <div class="text-2xl font-bold text-green-600 mt-1" id="resTimeDiff">--</div>
+                            <div class="text-xs text-gray-400">ms</div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm text-center">
+                            <div class="text-xs text-gray-500 uppercase tracking-wide">5ms内对齐率</div>
+                            <div class="text-2xl font-bold text-blue-600 mt-1" id="resAlignRate">--</div>
+                        </div>
+                    </div>
+
+                    <!-- 图表库 -->
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                            <h3 class="text-lg font-semibold text-gray-700"><i class="fa-solid fa-chart-line mr-2"></i>可视化报告</h3>
+                            <button onclick="downloadResults()" class="text-sm px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors">
+                                <i class="fa-solid fa-download mr-1"></i>下载全部结果
+                            </button>
+                        </div>
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="plotGallery">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. 历史任务记录 -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-700"><i class="fa-solid fa-clock-rotate-left mr-2"></i>历史任务记录</h3>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="loadHistory()" class="text-xs text-blue-500 hover:text-blue-700 hover:underline"><i class="fa-solid fa-rotate mr-1"></i>刷新</button>
+                            <button onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 hover:underline"><i class="fa-solid fa-trash mr-1"></i>清空</button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job ID</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">输入文件</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200" id="historyTableBody">
+                                <tr class="text-center text-gray-400">
+                                    <td colspan="5" class="py-4">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- 图片放大模态框 -->
+    <div id="imageModal" class="hidden fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4" onclick="closeImageModal()">
+        <div class="relative max-w-7xl max-h-full" onclick="event.stopPropagation()">
+            <button onclick="closeImageModal()" class="absolute -top-10 right-0 text-white hover:text-gray-300 text-2xl">
+                <i class="fa-solid fa-times"></i>
+            </button>
+            <img id="modalImage" src="" alt="放大图片" class="max-w-full max-h-screen rounded-lg shadow-2xl">
         </div>
     </div>
 
+    <!-- 底部 -->
+    <footer class="bg-white border-t border-gray-200 mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex justify-between items-center flex-col md:flex-row">
+                <p class="text-sm text-gray-500">© 2025 GNSS-IMU Platform v1.0.0</p>
+                <div class="text-sm text-gray-400 space-x-4 mt-2 md:mt-0">
+                    <span><i class="fa-brands fa-python"></i> Python 3.11+</span>
+                    <span><i class="fa-solid fa-bolt"></i> FastAPI</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
     <script>
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = window.location.origin;
         let currentJobId = null;
 
-        // 上传文件
-        document.getElementById('upload-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // --- UI Helper Functions ---
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
 
-            const formData = new FormData();
-            formData.append('gnss_file', document.getElementById('gnss-file').files[0]);
-            formData.append('imu_file', document.getElementById('imu-file').files[0]);
+        function formatTimestamp(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleString('zh-CN');
+        }
 
-            const resultFile = document.getElementById('result-file').files[0];
-            if (resultFile) {
-                formData.append('result_file', resultFile);
+        // --- File Upload Handling ---
+        const setupDropZone = (inputId, dropZoneId, nameDisplayId) => {
+            const input = document.getElementById(inputId);
+            const dropZone = document.getElementById(dropZoneId);
+            const nameDisplay = document.getElementById(nameDisplayId);
+
+            const updateDisplay = (file) => {
+                nameDisplay.innerHTML = `<span class="text-gray-900 font-medium">${file.name}</span> <span class="text-gray-400 text-xs">(${formatFileSize(file.size)})</span>`;
+                dropZone.classList.add('bg-blue-50', 'border-blue-400');
+            };
+
+            dropZone.addEventListener('click', () => input.click());
+
+            input.addEventListener('change', (e) => {
+                if (e.target.files.length) updateDisplay(e.target.files[0]);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropZone.classList.add('drag-active');
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropZone.classList.remove('drag-active');
+                }, false);
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files.length) {
+                    input.files = files;
+                    updateDisplay(files[0]);
+                }
+            });
+        };
+
+        setupDropZone('gnssFile', 'gnssDropZone', 'gnssFileName');
+        setupDropZone('imuFile', 'imuDropZone', 'imuFileName');
+        setupDropZone('resultFile', 'resultDropZone', 'resultFileName');
+
+        // --- Console Logger ---
+        const logger = {
+            el: document.getElementById('consoleLog'),
+            log: (msg, type = 'info') => {
+                const p = document.createElement('p');
+                const timestamp = new Date().toLocaleTimeString();
+                p.className = 'font-mono mb-1';
+
+                if (type === 'error') p.className += ' text-red-400';
+                else if (type === 'success') p.className += ' text-green-400';
+                else p.className += ' text-gray-300';
+
+                p.innerText = `[${timestamp}] ${msg}`;
+                logger.el.appendChild(p);
+                logger.el.scrollTop = logger.el.scrollHeight;
+            },
+            clear: () => {
+                logger.el.innerHTML = '';
             }
+        };
+
+        // --- Result Rendering ---
+        const renderResults = (data) => {
+            document.getElementById('resGnssCount').innerText = data.gnss_count.toLocaleString();
+            document.getElementById('resImuCount').innerText = data.imu_count.toLocaleString();
+            document.getElementById('resTimeDiff').innerText = (data.alignment_report.avg_time_diff * 1000).toFixed(3);
+
+            const alignRate = (data.alignment_report.pairs_within_5ms / data.alignment_report.total_pairs * 100).toFixed(1);
+            document.getElementById('resAlignRate').innerText = alignRate + '%';
+
+            // Render plots
+            const gallery = document.getElementById('plotGallery');
+            gallery.innerHTML = '';
+
+            if (data.plots && data.plots.length > 0) {
+                data.plots.forEach(plotName => {
+                    const plotUrl = `${API_BASE}/api/plots/${currentJobId}/${plotName}`;
+                    const html = `
+                        <div class="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer" onclick="openImageModal('${plotUrl}')">
+                            <img src="${plotUrl}" alt="${plotName}" class="w-full h-auto">
+                            <p class="p-2 text-sm font-medium text-gray-700 text-center bg-gray-50">${plotName.replace('.png', '').replace(/_/g, ' ')}</p>
+                        </div>
+                    `;
+                    gallery.insertAdjacentHTML('beforeend', html);
+                });
+            }
+
+            document.getElementById('resultsPanel').classList.remove('hidden');
+        };
+
+        // --- History Management ---
+        async function loadHistory() {
+            try {
+                const response = await fetch(`${API_BASE}/api/jobs?limit=15`);
+                const data = await response.json();
+
+                const tbody = document.getElementById('historyTableBody');
+                tbody.innerHTML = '';
+
+                if (data.jobs.length === 0) {
+                    tbody.innerHTML = '<tr class="text-center text-gray-400"><td colspan="5" class="py-4">暂无历史记录</td></tr>';
+                    return;
+                }
+
+                data.jobs.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50 transition-colors';
+
+                    let statusBadge = '';
+                    if (item.status === 'completed') {
+                        statusBadge = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">已完成</span>';
+                    } else if (item.status === 'failed') {
+                        statusBadge = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">失败</span>';
+                    } else if (item.status === 'processing') {
+                        statusBadge = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">处理中</span>';
+                    } else {
+                        statusBadge = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">已上传</span>';
+                    }
+
+                    // 操作按钮
+                    let actionBtn = '';
+                    if (item.status === 'completed') {
+                        actionBtn = `<button onclick="viewHistoryJob('${item.id}')" class="text-blue-600 hover:text-blue-900 text-sm font-medium"><i class="fa-solid fa-eye mr-1"></i>查看结果</button>`;
+                    } else {
+                        actionBtn = '<span class="text-gray-400 text-sm">-</span>';
+                    }
+
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${formatTimestamp(item.created_at)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">${item.id}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">
+                            <div class="flex flex-col">
+                                <span><i class="fa-solid fa-satellite fa-xs mr-1"></i>${item.filenames.gnss || 'N/A'}</span>
+                                <span><i class="fa-solid fa-microchip fa-xs mr-1"></i>${item.filenames.imu || 'N/A'}</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">${statusBadge}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">${actionBtn}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            } catch (error) {
+                console.error('加载历史失败:', error);
+                const tbody = document.getElementById('historyTableBody');
+                tbody.innerHTML = '<tr class="text-center text-red-400"><td colspan="5" class="py-4">加载失败</td></tr>';
+            }
+        }
+
+        async function clearHistory() {
+            if (!confirm('确定要清空所有已完成和失败的任务吗？')) return;
 
             try {
-                const response = await fetch(`${API_BASE}/api/upload`, {
-                    method: 'POST',
-                    body: formData
+                const response = await fetch(`${API_BASE}/api/jobs/cleanup`, {
+                    method: 'POST'
                 });
-
                 const data = await response.json();
-                currentJobId = data.job_id;
-
-                alert('文件上传成功！');
-                document.getElementById('upload-section').style.display = 'none';
-                document.getElementById('config-section').style.display = 'block';
+                alert(`已清理 ${data.deleted_count} 个任务`);
+                loadHistory();
             } catch (error) {
-                alert('上传失败: ' + error.message);
+                alert('清理失败: ' + error.message);
             }
-        });
+        }
 
-        // 开始处理
-        document.getElementById('config-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        // --- Main Process Logic ---
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('startBtn');
+            const statusBadge = document.getElementById('statusBadge');
+            const progressBar = document.getElementById('progressBar');
+            const gnssFile = document.getElementById('gnssFile').files[0];
+            const imuFile = document.getElementById('imuFile').files[0];
+            const resultFile = document.getElementById('resultFile').files[0];
+            const imuFreq = document.getElementById('imuFreq').value;
+            const interpMethod = document.querySelector('input[name="interpMethod"]:checked').value;
+            const generatePlots = document.getElementById('generatePlots').checked;
 
-            if (!currentJobId) {
-                alert('请先上传文件');
+            // Validation
+            if (!gnssFile || !imuFile) {
+                alert('错误：请上传必需的 GNSS 和 IMU 文件。');
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('imu_frequency', document.getElementById('imu-freq').value);
-            formData.append('interpolation_method', document.getElementById('interp-method').value);
-            formData.append('interpolation_frequency', document.getElementById('interp-freq').value);
-            formData.append('generate_plots', document.getElementById('generate-plots').checked);
+            // Reset UI
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> 处理中...';
+            statusBadge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800";
+            statusBadge.innerText = "上传中";
+            progressBar.style.width = '0%';
+            logger.clear();
+            document.getElementById('resultsPanel').classList.add('hidden');
 
             try {
-                const response = await fetch(`${API_BASE}/api/process/${currentJobId}`, {
+                // Step 1: Upload
+                logger.log(`开始上传文件...`);
+                logger.log(`GNSS: ${gnssFile.name} (${formatFileSize(gnssFile.size)})`);
+                logger.log(`IMU: ${imuFile.name} (${formatFileSize(imuFile.size)})`);
+
+                const formData = new FormData();
+                formData.append('gnss_file', gnssFile);
+                formData.append('imu_file', imuFile);
+                if (resultFile) formData.append('result_file', resultFile);
+
+                const uploadResponse = await fetch(`${API_BASE}/api/upload`, {
                     method: 'POST',
                     body: formData
                 });
+                const uploadData = await uploadResponse.json();
+                currentJobId = uploadData.job_id;
 
-                const data = await response.json();
+                logger.log(`上传完成. Job ID: ${currentJobId}`, 'success');
+                progressBar.style.width = '20%';
 
-                document.getElementById('config-section').style.display = 'none';
-                document.getElementById('progress').style.display = 'block';
+                // Step 2: Start Processing
+                logger.log(`启动处理管线...`);
+                statusBadge.innerText = "处理中";
 
-                // 轮询状态
-                checkStatus();
+                const processFormData = new FormData();
+                processFormData.append('imu_frequency', imuFreq);
+                processFormData.append('interpolation_method', interpMethod);
+                processFormData.append('interpolation_frequency', imuFreq);
+                processFormData.append('generate_plots', generatePlots);
+
+                const processResponse = await fetch(`${API_BASE}/api/process/${currentJobId}`, {
+                    method: 'POST',
+                    body: processFormData
+                });
+                await processResponse.json();
+
+                logger.log(`处理已开始，插值方法: ${interpMethod}`, 'success');
+                progressBar.style.width = '40%';
+
+                // Step 3: Poll Status
+                logger.log(`等待处理完成...`);
+                await pollStatus();
+
             } catch (error) {
-                alert('处理失败: ' + error.message);
+                logger.log(`错误: ${error.message}`, 'error');
+                statusBadge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800";
+                statusBadge.innerText = "失败";
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-play mr-2 mt-0.5"></i> 重新开始';
             }
         });
 
-        // 检查状态
-        async function checkStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/api/status/${currentJobId}`);
-                const data = await response.json();
+        async function pollStatus() {
+            const statusBadge = document.getElementById('statusBadge');
+            const progressBar = document.getElementById('progressBar');
+            const btn = document.getElementById('startBtn');
 
-                document.getElementById('status-text').textContent =
-                    data.status === 'processing' ? '处理中...' :
-                    data.status === 'completed' ? '处理完成' :
-                    data.status === 'failed' ? '处理失败: ' + data.error : data.status;
+            let attempts = 0;
+            const maxAttempts = 60; // 2分钟超时
 
-                document.getElementById('status-badge').textContent = data.status;
-                document.getElementById('status-badge').className =
-                    'badge status-badge ' +
-                    (data.status === 'completed' ? 'bg-success' :
-                     data.status === 'failed' ? 'bg-danger' : 'bg-primary');
+            const poll = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/status/${currentJobId}`);
+                    const data = await response.json();
 
-                if (data.status === 'completed') {
-                    showResults();
-                } else if (data.status === 'processing') {
-                    setTimeout(checkStatus, 2000); // 2秒后再次检查
-                } else if (data.status === 'failed') {
-                    document.getElementById('progress').innerHTML =
-                        '<div class="alert alert-danger">处理失败: ' + (data.error || '未知错误') + '</div>';
+                    if (data.status === 'completed') {
+                        progressBar.style.width = '100%';
+                        statusBadge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800";
+                        statusBadge.innerText = "已完成";
+                        logger.log(`处理完成`, 'success');
+
+                        // Get results
+                        const resultResponse = await fetch(`${API_BASE}/api/results/${currentJobId}`);
+                        const resultData = await resultResponse.json();
+                        renderResults(resultData.results);
+
+                        loadHistory();
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-play mr-2 mt-0.5"></i> 重新开始';
+
+                    } else if (data.status === 'failed') {
+                        statusBadge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800";
+                        statusBadge.innerText = "失败";
+                        logger.log(`处理失败: ${data.error || '未知错误'}`, 'error');
+
+                        loadHistory();
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-play mr-2 mt-0.5"></i> 重新开始';
+
+                    } else if (data.status === 'processing') {
+                        progressBar.style.width = '60%';
+                        attempts++;
+
+                        if (attempts >= maxAttempts) {
+                            logger.log(`处理超时`, 'error');
+                            statusBadge.className = "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800";
+                            statusBadge.innerText = "超时";
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fa-solid fa-play mr-2 mt-0.5"></i> 重新开始';
+                        } else {
+                            setTimeout(poll, 2000);
+                        }
+                    }
+                } catch (error) {
+                    logger.log(`状态查询失败: ${error.message}`, 'error');
+                    setTimeout(poll, 2000);
                 }
+            };
+
+            poll();
+        }
+
+        // --- View History Job Results ---
+        async function viewHistoryJob(jobId) {
+            try {
+                currentJobId = jobId;
+                logger.clear();
+                logger.log(`加载任务 ${jobId} 的结果...`);
+
+                const resultResponse = await fetch(`${API_BASE}/api/results/${jobId}`);
+                const resultData = await resultResponse.json();
+
+                renderResults(resultData.results);
+
+                // 滚动到结果面板
+                document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth' });
             } catch (error) {
-                console.error('状态检查失败:', error);
-                setTimeout(checkStatus, 2000);
+                alert('加载结果失败: ' + error.message);
             }
         }
 
-        // 显示结果
-        async function showResults() {
-            try {
-                const response = await fetch(`${API_BASE}/api/results/${currentJobId}`);
-                const data = await response.json();
-
-                document.getElementById('progress').style.display = 'none';
-                document.getElementById('results-section').style.display = 'block';
-
-                // 显示统计信息
-                const results = data.results;
-                const report = results.alignment_report;
-
-                document.getElementById('results-summary').innerHTML = `
-                    <p><strong>数据统计：</strong></p>
-                    <ul>
-                        <li>GNSS数据: ${results.gnss_count} 条</li>
-                        <li>IMU数据: ${results.imu_count} 条</li>
-                        <li>插值后GNSS: ${results.interpolated_count} 条</li>
-                    </ul>
-                    <p><strong>对齐质量：</strong></p>
-                    <ul>
-                        <li>平均时间差: ${(report.avg_time_diff * 1000).toFixed(2)} ms</li>
-                        <li>最大时间差: ${(report.max_time_diff * 1000).toFixed(2)} ms</li>
-                        <li>5ms内对齐率: ${(report.pairs_within_5ms / report.total_pairs * 100).toFixed(1)}%</li>
-                        <li>10ms内对齐率: ${(report.pairs_within_10ms / report.total_pairs * 100).toFixed(1)}%</li>
-                    </ul>
-                `;
-
-                // 显示图表
-                if (results.plots && results.plots.length > 0) {
-                    const plotsHtml = results.plots.map(plot =>
-                        `<div class="col-md-6 mb-3">
-                            <h5>${plot}</h5>
-                            <img src="${API_BASE}/api/plots/${currentJobId}/${plot}" class="img-fluid" alt="${plot}">
-                        </div>`
-                    ).join('');
-
-                    document.getElementById('plots-container').innerHTML =
-                        '<h4>可视化图表</h4><div class="row">' + plotsHtml + '</div>';
-                }
-            } catch (error) {
-                alert('获取结果失败: ' + error.message);
+        // --- Download Results ---
+        function downloadResults() {
+            if (!currentJobId) {
+                alert('没有可下载的结果');
+                return;
             }
+
+            window.location.href = `${API_BASE}/api/download/${currentJobId}`;
         }
+
+        // --- Image Modal ---
+        function openImageModal(imageUrl) {
+            document.getElementById('modalImage').src = imageUrl;
+            document.getElementById('imageModal').classList.remove('hidden');
+        }
+
+        function closeImageModal() {
+            document.getElementById('imageModal').classList.add('hidden');
+        }
+
+        // Init on load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadHistory();
+        });
     </script>
 </body>
 </html>

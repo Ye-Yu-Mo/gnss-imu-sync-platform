@@ -12,7 +12,7 @@ import asyncio
 from datetime import datetime
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -20,27 +20,24 @@ from ..pipeline.data_pipeline import DataPipeline, PipelineConfig, PipelineResul
 
 logger = logging.getLogger(__name__)
 
-# 创建FastAPI应用
+# 创建FastAPI应用（禁用默认docs，使用自定义CDN）
 app = FastAPI(
     title="GNSS/IMU数据处理平台",
     description="异步数据处理管线Web接口",
     version="1.0.0",
-    # 使用国内CDN，避免被墙
-    swagger_ui_parameters={
-        "syntaxHighlight.theme": "obsidian",
-    }
+    docs_url=None,  # 禁用默认docs
+    redoc_url=None  # 禁用redoc
 )
 
 # 自定义Swagger UI使用国内CDN
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
     """使用国内CDN的Swagger UI"""
     return get_swagger_ui_html(
         openapi_url=app.openapi_url,
-        title=app.title + " - Swagger UI",
+        title=app.title + " - API文档",
         swagger_js_url="https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.11.0/swagger-ui-bundle.min.js",
         swagger_css_url="https://cdn.bootcdn.net/ajax/libs/swagger-ui/5.11.0/swagger-ui.min.css",
     )
@@ -75,10 +72,14 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "upload": "/api/upload",
-            "process": "/api/process",
+            "process": "/api/process/{job_id}",
             "status": "/api/status/{job_id}",
             "results": "/api/results/{job_id}",
-            "plots": "/api/plots/{job_id}/{filename}"
+            "plots": "/api/plots/{job_id}/{filename}",
+            "jobs": "/api/jobs?limit=15&offset=0",
+            "delete_job": "DELETE /api/jobs/{job_id}",
+            "cleanup": "DELETE /api/jobs/cleanup?status=completed",
+            "delete_all": "DELETE /api/jobs/all"
         }
     }
 
@@ -94,7 +95,8 @@ async def upload_files(
 
     返回：job_id 和上传的文件路径
     """
-    job_id = str(uuid.uuid4())
+    # 使用时间戳作为job_id，格式：YYYYMMDDHHMMSSffffff
+    job_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(exist_ok=True)
 
@@ -126,6 +128,11 @@ async def upload_files(
             "gnss": str(gnss_path),
             "imu": str(imu_path),
             "result": str(result_path) if result_path else None
+        },
+        "filenames": {
+            "gnss": gnss_file.filename,
+            "imu": imu_file.filename,
+            "result": result_file.filename if result_file else None
         }
     }
 
@@ -288,24 +295,159 @@ async def get_plot(job_id: str, filename: str):
     return FileResponse(plot_path)
 
 
+@app.get("/api/download/{job_id}")
+async def download_results(job_id: str):
+    """
+    打包下载任务的所有结果文件（ZIP）
+
+    包含：对齐报告JSON、所有图表PNG
+    """
+    import zipfile
+    from io import BytesIO
+
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[job_id]
+    if job["status"] != "completed":
+        raise HTTPException(status_code=400, detail="Job not completed yet")
+
+    output_dir = OUTPUT_DIR / job_id
+
+    # 创建内存中的ZIP文件
+    zip_buffer = BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # 添加图表
+        plots_dir = output_dir / "plots"
+        if plots_dir.exists():
+            for plot_file in plots_dir.glob("*.png"):
+                zip_file.write(plot_file, f"plots/{plot_file.name}")
+
+        # 添加对齐报告JSON
+        if job.get("results"):
+            import json
+            report_json = json.dumps(job["results"]["alignment_report"], indent=2, ensure_ascii=False)
+            zip_file.writestr("alignment_report.json", report_json)
+
+    zip_buffer.seek(0)
+
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename=results_{job_id}.zip"
+        }
+    )
+
+
 @app.get("/api/jobs")
-async def list_jobs():
-    """列出所有任务"""
+async def list_jobs(limit: int = 15, offset: int = 0):
+    """
+    列出所有任务（按时间倒序）
+
+    参数:
+        limit: 返回数量限制（默认15）
+        offset: 偏移量（用于分页）
+    """
+    # 按job_id倒序排序（job_id是时间戳，越大越新）
+    sorted_jobs = sorted(
+        jobs.items(),
+        key=lambda x: x[0],
+        reverse=True
+    )[offset:offset + limit]
+
     return {
+        "total": len(jobs),
+        "limit": limit,
+        "offset": offset,
         "jobs": [
             {
                 "id": job_id,
                 "status": job["status"],
-                "created_at": job.get("created_at")
+                "created_at": job.get("created_at"),
+                "completed_at": job.get("completed_at"),
+                "filenames": job.get("filenames", {}),
+                "error": job.get("error")
             }
-            for job_id, job in jobs.items()
+            for job_id, job in sorted_jobs
         ]
+    }
+
+
+@app.post("/api/jobs/cleanup")
+async def cleanup_jobs(status: Optional[str] = None):
+    """
+    批量清理任务
+
+    参数:
+        status: 清理指定状态的任务（completed/failed），不指定则清理所有非processing任务
+    """
+    import shutil
+
+    to_delete = []
+
+    for job_id, job in jobs.items():
+        if status:
+            # 清理指定状态
+            if job["status"] == status:
+                to_delete.append(job_id)
+        else:
+            # 清理所有非processing任务
+            if job["status"] in ["completed", "failed"]:
+                to_delete.append(job_id)
+
+    deleted_count = 0
+    for job_id in to_delete:
+        try:
+            job_dir = UPLOAD_DIR / job_id
+            output_dir = OUTPUT_DIR / job_id
+
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+
+            del jobs[job_id]
+            deleted_count += 1
+        except Exception as e:
+            logger.error(f"删除任务失败: job_id={job_id}, error={e}")
+
+    return {
+        "message": f"Cleanup completed",
+        "deleted_count": deleted_count,
+        "remaining_jobs": len(jobs)
+    }
+
+
+@app.post("/api/jobs/clear-all")
+async def delete_all_jobs():
+    """清空所有任务（危险操作）"""
+    import shutil
+
+    deleted_count = len(jobs)
+
+    # 删除所有文件
+    if UPLOAD_DIR.exists():
+        shutil.rmtree(UPLOAD_DIR)
+        UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+
+    if OUTPUT_DIR.exists():
+        shutil.rmtree(OUTPUT_DIR)
+        OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
+
+    # 清空任务记录
+    jobs.clear()
+
+    return {
+        "message": "All jobs deleted",
+        "deleted_count": deleted_count
     }
 
 
 @app.delete("/api/jobs/{job_id}")
 async def delete_job(job_id: str):
-    """删除任务（清理文件）"""
+    """删除单个任务（清理文件）"""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -322,7 +464,7 @@ async def delete_job(job_id: str):
     # 删除记录
     del jobs[job_id]
 
-    return {"message": "Job deleted"}
+    return {"message": "Job deleted", "job_id": job_id}
 
 
 if __name__ == "__main__":
