@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GNSS/IMU数据处理平台</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .plot-container {
+            margin-top: 20px;
+        }
+        .plot-container img {
+            max-width: 100%;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .status-badge {
+            font-size: 14px;
+            padding: 5px 10px;
+        }
+        #progress {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">GNSS/IMU 数据处理平台</h1>
+        <p class="text-muted">上传GNSS和IMU数据文件，自动完成时序同步、插值和可视化</p>
+
+        <hr>
+
+        <!-- 文件上传表单 -->
+        <div id="upload-section">
+            <h3>1. 上传数据文件</h3>
+            <form id="upload-form">
+                <div class="mb-3">
+                    <label for="gnss-file" class="form-label">GNSS数据文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" id="gnss-file" required>
+                    <small class="text-muted">附录1 GNSS帧格式（46字节）</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="imu-file" class="form-label">IMU数据文件 <span class="text-danger">*</span></label>
+                    <input type="file" class="form-control" id="imu-file" required>
+                    <small class="text-muted">附录1 INS帧格式（52字节）</small>
+                </div>
+
+                <div class="mb-3">
+                    <label for="result-file" class="form-label">解算结果文件（可选）</label>
+                    <input type="file" class="form-control" id="result-file">
+                    <small class="text-muted">附录2文本格式</small>
+                </div>
+
+                <button type="submit" class="btn btn-primary">上传文件</button>
+            </form>
+        </div>
+
+        <!-- 参数配置 -->
+        <div id="config-section" style="display: none;">
+            <hr>
+            <h3>2. 配置处理参数</h3>
+            <form id="config-form">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="imu-freq" class="form-label">IMU采样频率 (Hz)</label>
+                        <input type="number" class="form-control" id="imu-freq" value="95" step="0.1" required>
+                    </div>
+
+                    <div class="col-md-6 mb-3">
+                        <label for="interp-freq" class="form-label">插值目标频率 (Hz)</label>
+                        <input type="number" class="form-control" id="interp-freq" value="95" step="0.1" required>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="interp-method" class="form-label">插值方法</label>
+                    <select class="form-select" id="interp-method">
+                        <option value="linear" selected>线性插值（快速）</option>
+                        <option value="spline">三次样条插值（高精度）</option>
+                    </select>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="generate-plots" checked>
+                    <label class="form-check-label" for="generate-plots">
+                        生成可视化图表
+                    </label>
+                </div>
+
+                <button type="submit" class="btn btn-success">开始处理</button>
+            </form>
+        </div>
+
+        <!-- 进度显示 -->
+        <div id="progress" class="mt-4">
+            <hr>
+            <h3>处理进度</h3>
+            <div class="alert alert-info">
+                <strong>状态：</strong> <span id="status-text">处理中...</span>
+                <span id="status-badge" class="badge status-badge bg-primary float-end">processing</span>
+            </div>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 100%"></div>
+            </div>
+        </div>
+
+        <!-- 结果展示 -->
+        <div id="results-section" style="display: none;">
+            <hr>
+            <h3>处理结果</h3>
+
+            <div class="alert alert-success">
+                <h5>✅ 处理完成</h5>
+                <div id="results-summary"></div>
+            </div>
+
+            <div id="plots-container" class="plot-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentJobId = null;
+
+        // 上传文件
+        document.getElementById('upload-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const formData = new FormData();
+            formData.append('gnss_file', document.getElementById('gnss-file').files[0]);
+            formData.append('imu_file', document.getElementById('imu-file').files[0]);
+
+            const resultFile = document.getElementById('result-file').files[0];
+            if (resultFile) {
+                formData.append('result_file', resultFile);
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                currentJobId = data.job_id;
+
+                alert('文件上传成功！');
+                document.getElementById('upload-section').style.display = 'none';
+                document.getElementById('config-section').style.display = 'block';
+            } catch (error) {
+                alert('上传失败: ' + error.message);
+            }
+        });
+
+        // 开始处理
+        document.getElementById('config-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!currentJobId) {
+                alert('请先上传文件');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('imu_frequency', document.getElementById('imu-freq').value);
+            formData.append('interpolation_method', document.getElementById('interp-method').value);
+            formData.append('interpolation_frequency', document.getElementById('interp-freq').value);
+            formData.append('generate_plots', document.getElementById('generate-plots').checked);
+
+            try {
+                const response = await fetch(`${API_BASE}/api/process/${currentJobId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                document.getElementById('config-section').style.display = 'none';
+                document.getElementById('progress').style.display = 'block';
+
+                // 轮询状态
+                checkStatus();
+            } catch (error) {
+                alert('处理失败: ' + error.message);
+            }
+        });
+
+        // 检查状态
+        async function checkStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status/${currentJobId}`);
+                const data = await response.json();
+
+                document.getElementById('status-text').textContent =
+                    data.status === 'processing' ? '处理中...' :
+                    data.status === 'completed' ? '处理完成' :
+                    data.status === 'failed' ? '处理失败: ' + data.error : data.status;
+
+                document.getElementById('status-badge').textContent = data.status;
+                document.getElementById('status-badge').className =
+                    'badge status-badge ' +
+                    (data.status === 'completed' ? 'bg-success' :
+                     data.status === 'failed' ? 'bg-danger' : 'bg-primary');
+
+                if (data.status === 'completed') {
+                    showResults();
+                } else if (data.status === 'processing') {
+                    setTimeout(checkStatus, 2000); // 2秒后再次检查
+                } else if (data.status === 'failed') {
+                    document.getElementById('progress').innerHTML =
+                        '<div class="alert alert-danger">处理失败: ' + (data.error || '未知错误') + '</div>';
+                }
+            } catch (error) {
+                console.error('状态检查失败:', error);
+                setTimeout(checkStatus, 2000);
+            }
+        }
+
+        // 显示结果
+        async function showResults() {
+            try {
+                const response = await fetch(`${API_BASE}/api/results/${currentJobId}`);
+                const data = await response.json();
+
+                document.getElementById('progress').style.display = 'none';
+                document.getElementById('results-section').style.display = 'block';
+
+                // 显示统计信息
+                const results = data.results;
+                const report = results.alignment_report;
+
+                document.getElementById('results-summary').innerHTML = `
+                    <p><strong>数据统计：</strong></p>
+                    <ul>
+                        <li>GNSS数据: ${results.gnss_count} 条</li>
+                        <li>IMU数据: ${results.imu_count} 条</li>
+                        <li>插值后GNSS: ${results.interpolated_count} 条</li>
+                    </ul>
+                    <p><strong>对齐质量：</strong></p>
+                    <ul>
+                        <li>平均时间差: ${(report.avg_time_diff * 1000).toFixed(2)} ms</li>
+                        <li>最大时间差: ${(report.max_time_diff * 1000).toFixed(2)} ms</li>
+                        <li>5ms内对齐率: ${(report.pairs_within_5ms / report.total_pairs * 100).toFixed(1)}%</li>
+                        <li>10ms内对齐率: ${(report.pairs_within_10ms / report.total_pairs * 100).toFixed(1)}%</li>
+                    </ul>
+                `;
+
+                // 显示图表
+                if (results.plots && results.plots.length > 0) {
+                    const plotsHtml = results.plots.map(plot =>
+                        `<div class="col-md-6 mb-3">
+                            <h5>${plot}</h5>
+                            <img src="${API_BASE}/api/plots/${currentJobId}/${plot}" class="img-fluid" alt="${plot}">
+                        </div>`
+                    ).join('');
+
+                    document.getElementById('plots-container').innerHTML =
+                        '<h4>可视化图表</h4><div class="row">' + plotsHtml + '</div>';
+                }
+            } catch (error) {
+                alert('获取结果失败: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

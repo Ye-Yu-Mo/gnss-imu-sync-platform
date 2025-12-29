@@ -10,7 +10,7 @@
 - ✅ GNSS插值（线性/三次样条）
 - ✅ 数据可视化（时间戳对齐、轨迹、传感器曲线）
 - ✅ 完整处理管线（一键处理）
-- 🚧 Web前端界面（计划中）
+- ✅ Web前端界面（异步API+实时监控）
 
 ## 项目结构
 
@@ -40,6 +40,8 @@ gnss-imu-sync-platform/
 ```
 
 ## 快速开始
+
+**详细使用文档**: 见 [`USAGE.md`](USAGE.md)
 
 ### 1. 安装依赖
 
@@ -93,6 +95,27 @@ output/
 │   └── interpolation_*.png      # 插值效果对比
 └── ...
 ```
+
+### 4. Web界面
+
+**启动Web服务**：
+```bash
+# 安装Web依赖
+uv sync --extra web
+
+# 启动服务器
+python run_web.py
+```
+
+**访问地址**：
+- **Web界面**: http://localhost:8000/static/index.html
+- **API文档**: http://localhost:8000/docs
+
+**使用流程**：
+1. 上传GNSS和IMU数据文件
+2. 配置处理参数（频率、插值方法等）
+3. 启动处理并实时监控进度
+4. 查看对齐质量报告和可视化图表
 
 ## 核心功能
 
@@ -157,10 +180,11 @@ output/
 - 命令行工具
 - Python API
 
-**F6 - Web前端** [计划中]
-- 后端REST API
+**F6 - Web前端** [✅ 已完成]
+- FastAPI异步后端
+- Bootstrap响应式界面
 - 文件上传与在线处理
-- 实时图表展示
+- 实时状态监控与图表展示
 
 ## 数据说明
 
@@ -177,8 +201,8 @@ output/
 - **包管理**: uv
 - **数值计算**: NumPy, SciPy
 - **可视化**: Matplotlib
-- **Web 后端** (计划): FastAPI
-- **Web 前端** (计划): React + ECharts
+- **Web后端**: FastAPI, Uvicorn
+- **Web前端**: HTML5, Bootstrap 5, Vanilla JS
 
 ## 开发规范
 
