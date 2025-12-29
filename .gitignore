@@ -67,3 +67,5 @@ data/*.pdf
 .cache/
 *.md
 CLAUDE.md
+output/
+examples/
